@@ -48,16 +48,6 @@ static bool run_iteration(Wid wid, Iteration iter)
   return target_wid == wid;
 }
 
-static bool pipeline_fill_iter(Wid wid, Iteration iter)
-{
-  // constant
-  unsigned stage = GET_MY_STAGE(wid);
-  // constant
-  if ((GET_FIRST_WID_OF_STAGE(stage) + iter) < wid)
-    return true;
-  return false;
-}
-
 static void check_misspec(void)
 {
   // O(pcb_size)
@@ -66,7 +56,6 @@ static void check_misspec(void)
   Wid       wid = PREFIX(my_worker_id)();
   // constant
   Iteration iter = __specpriv_current_iter();
-
 }
 
 uintptr_t *get_ebp(void)
@@ -257,23 +246,6 @@ static unsigned clear_read(uint8_t* shadow)
   return nonzero;
 }
 
-static bool check_nrbw(uint8_t* shadow)
-{
-  for (unsigned i = 0 ; i < PAGE_SIZE ; i += 16)
-  {
-    uint64_t s0 = (*((uint64_t*)(&shadow[i])));
-    uint64_t s1 = (*((uint64_t*)(&shadow[i+8])));
-
-    if (s0 == 0 && s1 == 0) continue;
-
-    __m128i val = _mm_set_epi32((int)(s1 >> 32), (int)s1, (int)(s0 >> 32), (int)s0);
-    __m128i mask = _mm_set1_epi8(1);
-
-    if (!_mm_test_all_zeros(val, mask)) return false;
-  }
-  return true;
-}
-
 static inline void forward_ro_page(Wid wid, Iteration iter)
 {
   if (ro_page_buffer.index != 0)
@@ -281,18 +253,6 @@ static inline void forward_ro_page(Wid wid, Iteration iter)
     forward_page( wid, iter, (void*)(ro_page_buffer.data), CHECK_RO_PAGE );
     memset((void*)(ro_page_buffer.data), 0, PAGE_SIZE);
   }
-}
-
-static inline void buffer_ro_page(Wid wid, Iteration iter, void* page)
-{
-  if (ro_page_buffer.index == RO_ENTRY_BUFFER_SIZE)
-  {
-    forward_ro_page(wid, iter);
-    ro_page_buffer.index = 0;
-  }
-
-  (ro_page_buffer.data)[ro_page_buffer.index] = page;
-  ro_page_buffer.index += 1;
 }
 
 static inline void forward_pair(unsigned nonzero, Wid wid, Iteration iter, void* mem, void* shadow, int16_t check)
@@ -326,141 +286,16 @@ static inline void forward_pair(unsigned nonzero, Wid wid, Iteration iter, void*
   }
   else
   {
-    buffer_ro_page(wid, iter, mem);
+    if (ro_page_buffer.index == RO_ENTRY_BUFFER_SIZE)
+    {
+      forward_ro_page(wid, iter);
+      ro_page_buffer.index = 0;
+    }
+
+    (ro_page_buffer.data)[ro_page_buffer.index] = mem;
+    ro_page_buffer.index += 1;
 
     set_zero_page( (uint8_t*)shadow );
-  }
-}
-
-static void check_region_nrbw(std::set<unsigned>* region, Wid wid, Iteration iter)
-{
-  if (region)
-  {
-    for (std::set<unsigned>::iterator i = region->begin() ; i != region->end() ; i++)
-    {
-      uint64_t begin = heap_begin(*i);
-      uint64_t bound = heap_bound(*i);
-
-
-      while ( begin < bound )
-      {
-        uint8_t* shadow = (uint8_t*)GET_SHADOW_OF(begin);
-
-
-        if ( *shadow & 0x80 )
-        {
-          *shadow = *shadow & 0x7f;
-
-          unsigned nonzero = clear_read(shadow);
-
-          if (check_nrbw(shadow))
-          {
-            forward_pair(nonzero, wid, iter, (void*)begin, (void*)shadow, CHECK_FREE);
-          }
-          else
-          {
-            PREFIX(misspec)("nrbw check failed\n");
-          }
-        }
-
-        begin += PAGE_SIZE;
-      }
-    }
-  }
-}
-
-static void check_versioned_region_nrbw(std::set<unsigned>* region, Wid wid, Iteration iter)
-{
-  if (region)
-  {
-    for (std::set<unsigned>::iterator i = region->begin() ; i != region->end() ; i++)
-    {
-      for (unsigned j = 0 ; j < MAX_WORKERS ; j++)
-      {
-        uint64_t begin = versioned_heap_begin(j, *i);
-        uint64_t bound = versioned_heap_bound(j, *i);
-
-        while ( begin < bound )
-        {
-          uint8_t* shadow = (uint8_t*)GET_SHADOW_OF(begin);
-
-          if ( *shadow & 0x80 )
-          {
-            *shadow = *shadow & 0x7f;
-
-            unsigned nonzero = clear_read(shadow);
-
-            if (check_nrbw(shadow))
-            {
-              forward_pair(nonzero, wid, iter, (void*)begin, (void*)shadow, CHECK_FREE);
-            }
-            else
-            {
-              PREFIX(misspec)("nrbw check failed\n");
-            }
-          }
-
-          begin += PAGE_SIZE;
-        }
-      }
-    }
-  }
-}
-
-static void forward_region(std::set<unsigned>* region, Wid wid, Iteration iter, int16_t check)
-{
-  if (region)
-  {
-    for (std::set<unsigned>::iterator i = region->begin() ; i != region->end() ; i++)
-    {
-      uint64_t begin = heap_begin(*i);
-      uint64_t bound = heap_bound(*i);
-
-      while ( begin < bound )
-      {
-        uint8_t* shadow = (uint8_t*)GET_SHADOW_OF(begin);
-        if ( *shadow & 0x80 )
-        {
-          *shadow = *shadow & 0x7f;
-
-          unsigned nonzero = clear_read(shadow);
-
-          forward_pair(nonzero, wid, iter, (void*)begin, (void*)shadow, check);
-        }
-
-        begin += PAGE_SIZE;
-      }
-    }
-  }
-}
-
-static void forward_versioned_region(std::set<unsigned>* region, Wid wid, Iteration iter, int16_t check)
-{
-  if (region)
-  {
-    for (std::set<unsigned>::iterator i = region->begin() ; i != region->end() ; i++)
-    {
-      for (unsigned j = 0 ; j < MAX_WORKERS ; j++)
-      {
-        uint64_t begin = versioned_heap_begin(j, *i);
-        uint64_t bound = versioned_heap_bound(j, *i);
-
-        while ( begin < bound )
-        {
-          uint8_t* shadow = (uint8_t*)GET_SHADOW_OF(begin);
-          if ( *shadow & 0x80 )
-          {
-            *shadow = *shadow & 0x7f;
-
-            unsigned nonzero = clear_read(shadow);
-
-            forward_pair(nonzero, wid, iter, (void*)begin, (void*)shadow, check);
-          }
-
-          begin += PAGE_SIZE;
-        }
-      }
-    }
   }
 }
 
