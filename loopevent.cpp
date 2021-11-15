@@ -57,8 +57,6 @@ static bool run_iteration(Wid wid, Iteration iter)
   Wid      wid_offset = (Wid)iter % GET_REPLICATION_FACTOR(stage);
   Wid      target_wid = GET_FIRST_WID_OF_STAGE(stage) + wid_offset;
 
-  // cost of flushing buffer of debug statement / constant cost
-  DBG("run_iteration, wid: %u, iter %d, stage %u, target_wid %u\n", wid, iter, stage, target_wid);
   return target_wid == wid;
 }
 
@@ -81,18 +79,6 @@ static void check_misspec(void)
   // constant
   Iteration iter = __specpriv_current_iter();
 
-  if( pcb->misspeculation_happened )
-  {
-    if ( pcb->misspeculated_iteration <= iter )
-    {
-      DBG("check_misspec, wid: %u, misspeculation_happened at %d, I'm at %d. Exit here\n",
-          wid, pcb->misspeculated_iteration, iter);
-      exit(0);
-    }
-    else
-      DBG("check_misspec, wid: %u, misspeculation_happened at %d, I'm at %d. Keep going\n",
-          wid, pcb->misspeculated_iteration, iter);
-  }
 }
 
 uintptr_t *get_ebp(void)
@@ -106,7 +92,6 @@ unsigned PREFIX(begin_invocation)()
 {
   stack_bound = (char*)get_ebp();
 
-  DBG("begin_invocation\n");
 
   reset_current_iter();
 
@@ -151,8 +136,6 @@ Exit PREFIX(end_invocation)()
   // O(sizeof pcb)
   destroy_pcb();
 
-  DBG("end_invocation returns %u\n", exit);
-
   //
   // reset affiinity
   //
@@ -178,7 +161,6 @@ void PREFIX(begin_iter)()
   Wid       wid = PREFIX(my_worker_id)();
   Iteration iter = PREFIX(current_iter)();
 
-  DBG("begin_iteration %d\n", iter);
 
   //
   // First iteration is special, because it updates loop-invariants values for following iterations.
@@ -188,9 +170,6 @@ void PREFIX(begin_iter)()
   if (iter)
   {
     // busy waithng
-
-    DBG("good_to_go?\n");
-
 
     while (!(*good_to_go)) {
       // At the end of the first iteration, commit prcoess sends some ALLOC packets back to the worker
@@ -203,7 +182,6 @@ void PREFIX(begin_iter)()
 
       process_reverse_commit_queue(wid);
     }
-    DBG("good_to_go!\n");
 
 #if (PROFILE || PROFILE_WEIGHT)
     fit = rdtsc() - begin;
@@ -268,7 +246,6 @@ void PREFIX(begin_iter)()
     to_try_commit( wid, (int8_t*)0xDEADBEEF, 0, 0, WRITE, BOI );
 #endif
 
-    DBG("begin_iteration : send BOI packet done\n");
   }
 
   //
@@ -301,7 +278,6 @@ void PREFIX(begin_iter)()
   loop_body_time_buf[wid] = rdtsc();
 #endif
 
-  DBG("End of begin_iteration %d\n", iter);
 }
 
 /*
@@ -368,17 +344,6 @@ static bool check_nrbw(uint8_t* shadow)
   {
     uint64_t s0 = (*((uint64_t*)(&shadow[i])));
     uint64_t s1 = (*((uint64_t*)(&shadow[i+8])));
-
-    if ( s0 & 0x0101010101010101L )
-    {
-      DBG("addr %lx shadow %p metadata %lx\n", GET_ORIGINAL_OF(&shadow[i]), &shadow[i], s0);
-      return false;
-    }
-    if ( s1 & 0x0101010101010101L )
-    {
-      DBG("addr %lx shadow %p metadata %lx\n", GET_ORIGINAL_OF(&shadow[i+8]), &shadow[i+8], s1);
-      return false;
-    }
   }
 #else
   for (unsigned i = 0 ; i < PAGE_SIZE ; i += 16)
@@ -428,7 +393,6 @@ static inline void forward_pair(unsigned nonzero, Wid wid, Iteration iter, void*
 {
   if ( nonzero > 8 )
   {
-    DBG("forward_page %p\n", mem);
 
 #if PROFILE
     unsigned m = 0, e = 0, packets = 0;
@@ -453,7 +417,6 @@ static inline void forward_pair(unsigned nonzero, Wid wid, Iteration iter, void*
   }
   else if ( nonzero )
   {
-    DBG("forward_packet %p\n", mem);
     int8_t* m = (int8_t*)mem;
     int8_t* s = (int8_t*)shadow;
 
@@ -498,13 +461,11 @@ static void check_region_nrbw(std::set<unsigned>* region, Wid wid, Iteration ite
       uint64_t begin = heap_begin(*i);
       uint64_t bound = heap_bound(*i);
 
-      DBG("check nrbw from %lx to %lx\n", begin, bound);
 
       while ( begin < bound )
       {
         uint8_t* shadow = (uint8_t*)GET_SHADOW_OF(begin);
 
-        DBG("check shadow for %lx: %x\n", begin, *shadow);
 
         if ( *shadow & 0x80 )
         {
@@ -518,7 +479,6 @@ static void check_region_nrbw(std::set<unsigned>* region, Wid wid, Iteration ite
           }
           else
           {
-            DBG("region %u, nrbw check failed: %lx\n", *i, begin);
             PREFIX(misspec)("nrbw check failed\n");
           }
         }
@@ -540,13 +500,9 @@ static void check_versioned_region_nrbw(std::set<unsigned>* region, Wid wid, Ite
         uint64_t begin = versioned_heap_begin(j, *i);
         uint64_t bound = versioned_heap_bound(j, *i);
 
-        DBG("check versioned nrbw from %lx to %lx\n", begin, bound);
-
         while ( begin < bound )
         {
           uint8_t* shadow = (uint8_t*)GET_SHADOW_OF(begin);
-
-          DBG("check shadow for %lx: %x\n", begin, *shadow);
 
           if ( *shadow & 0x80 )
           {
@@ -560,7 +516,6 @@ static void check_versioned_region_nrbw(std::set<unsigned>* region, Wid wid, Ite
             }
             else
             {
-              DBG("region %u, nrbw check failed: %lx\n", *i, begin);
               PREFIX(misspec)("nrbw check failed\n");
             }
           }
@@ -640,8 +595,6 @@ void PREFIX(end_iter)(void)
   Wid       wid = PREFIX(my_worker_id)();
   Iteration iter = PREFIX(current_iter)();
   unsigned  stage = GET_MY_STAGE( wid ) ;
-
-  DBG("end_iteration, %d\n", iter);
 
 #if (PROFILE || PROFILE_WEIGHT)
   uint64_t begin = rdtsc();
@@ -913,8 +866,6 @@ void PREFIX(end_iter)(void)
     broadcast_event( wid, (int8_t*)0xDEADBEEF, 0, NULL, WRITE, EOI );
 #endif
   }
-
-  DBG("End of end_iteration, %d\n", iter);
 
   // increase iteration count
 
