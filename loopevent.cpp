@@ -57,13 +57,16 @@ static bool run_iteration(Wid wid, Iteration iter)
   Wid      wid_offset = (Wid)iter % GET_REPLICATION_FACTOR(stage);
   Wid      target_wid = GET_FIRST_WID_OF_STAGE(stage) + wid_offset;
 
+  // cost of flushing buffer of debug statement / constant cost
   DBG("run_iteration, wid: %u, iter %d, stage %u, target_wid %u\n", wid, iter, stage, target_wid);
   return target_wid == wid;
 }
 
 static bool pipeline_fill_iter(Wid wid, Iteration iter)
 {
+  // constant
   unsigned stage = GET_MY_STAGE(wid);
+  // constant
   if ((GET_FIRST_WID_OF_STAGE(stage) + iter) < wid)
     return true;
   return false;
@@ -71,8 +74,11 @@ static bool pipeline_fill_iter(Wid wid, Iteration iter)
 
 static void check_misspec(void)
 {
+  // O(pcb_size)
   PCB*      pcb = get_pcb();
+  // O(prefix+id)
   Wid       wid = PREFIX(my_worker_id)();
+  // constant
   Iteration iter = __specpriv_current_iter();
 
   if( pcb->misspeculation_happened )
@@ -119,6 +125,7 @@ unsigned PREFIX(begin_invocation)()
   // initialize pcb
   //
 
+  // O(sizeof pcb)
   PCB *pcb = get_pcb();
   pcb->exit_taken = 0;
   pcb->misspeculation_happened = 0;
@@ -139,7 +146,9 @@ unsigned PREFIX(begin_invocation)()
 
 Exit PREFIX(end_invocation)()
 {
+  // O(sizeof pcb)
   Exit exit = get_pcb()->exit_taken;
+  // O(sizeof pcb)
   destroy_pcb();
 
   DBG("end_invocation returns %u\n", exit);
@@ -243,7 +252,9 @@ void PREFIX(begin_iter)()
 
   if (iter && !stage)
   {
+    // !!! THIS WILL NEED LOOP ANALYSIS !!!
     update_loop_invariants();
+    // !!! THIS WILL NEED LOOP ANALYSIS !!!
     update_linear_predicted_values();
 
 
@@ -253,6 +264,7 @@ void PREFIX(begin_iter)()
 #if PROFILE
     m_outgoing_bw[wid] += ( to_try_commit( wid, (int8_t*)0xDEADBEEF, 0, 0, WRITE, BOI ) * sizeof(packet) );
 #else
+    // O(num_aux_workers) [single for loop]
     to_try_commit( wid, (int8_t*)0xDEADBEEF, 0, 0, WRITE, BOI );
 #endif
 
