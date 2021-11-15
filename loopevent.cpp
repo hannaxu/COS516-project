@@ -811,43 +811,11 @@ void PREFIX(end_iter)(void)
     // Forward 'unclassified' heaps
     //
 
-#if 0 // separation not supported
-    forward_region(get_uc(), wid, iter, CHECK_REQUIRED);
-    forward_versioned_region(get_versioned_uc(), wid, iter, CHECK_REQUIRED);
-#endif
-
     //
     // Check NRBW(No-Read-Before-Write) heaps. If the violate the property, set misspec. Otherwise,
     // forward with CHECK_FREE flag.
     //
 
-#if 0 // separation not supported
-    DBG("check NRBW region\n");
-    check_region_nrbw(get_nrbw(), wid, iter);
-
-    DBG("check versioned NRBW region\n");
-    check_versioned_region_nrbw(get_versioned_nrbw(), wid, iter);
-
-    //
-    // If the worker is for the parallel stage, check NRBW property. Otherwise, just forward pages
-    // with CHECK_FREE flag.
-    //
-
-    unsigned  repfac = GET_REPLICATION_FACTOR(stage);
-    if ( repfac > 1)
-    {
-      DBG("check STAGE PRIVATE region\n");
-      check_region_nrbw(get_stage_private(stage), wid, iter);
-
-      DBG("check versioned PRIVATE region\n");
-      check_versioned_region_nrbw(get_versioned_stage_private(stage), wid, iter);
-    }
-    else
-    {
-      forward_region(get_stage_private(stage), wid, iter, CHECK_FREE);
-      forward_versioned_region(get_versioned_stage_private(stage), wid, iter, CHECK_FREE);
-    }
-#endif
   }
 
   //
