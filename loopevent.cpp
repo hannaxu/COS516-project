@@ -50,11 +50,8 @@ static bool run_iteration(Wid wid, Iteration iter)
 
 static void check_misspec(void)
 {
-  // O(pcb_size)
   PCB*      pcb = get_pcb();
-  // O(prefix+id)
-  Wid       wid = PREFIX(my_worker_id)();
-  // constant
+  Wid       wid = __specpriv_my_worker_id();
   Iteration iter = __specpriv_current_iter();
 }
 
@@ -65,7 +62,7 @@ uintptr_t *get_ebp(void)
   return r;
 }
 
-unsigned PREFIX(begin_invocation)()
+unsigned __specpriv_begin_invocation()
 {
   stack_bound = (char*)get_ebp();
 
@@ -103,14 +100,14 @@ unsigned PREFIX(begin_invocation)()
   // them consistent for all cases
   //
 
-  return (unsigned)PREFIX(num_available_workers)();
+  // !!! COULD NOT RESOLVE __specpriv_num_available_workers !!!
+  // return (unsigned)__specpriv_num_available_workers();
+  return (unsigned)__specpriv_num_workers();
 }
 
-Exit PREFIX(end_invocation)()
+Exit __specpriv_end_invocation()
 {
-  // O(sizeof pcb)
   Exit exit = get_pcb()->exit_taken;
-  // O(sizeof pcb)
   destroy_pcb();
 
   //
@@ -128,10 +125,10 @@ Exit PREFIX(end_invocation)()
  *  What worker proceesses do at the beginning of every iteration
  */
 
-void PREFIX(begin_iter)()
+void __specpriv_begin_iter()
 {
-  Wid       wid = PREFIX(my_worker_id)();
-  Iteration iter = PREFIX(current_iter)();
+  Wid       wid = __specpriv_my_worker_id();
+  Iteration iter = __specpriv_current_iter();
 
 
   //
@@ -305,10 +302,10 @@ static inline void forward_pair(unsigned nonzero, Wid wid, Iteration iter, void*
  *   What worker processes does at the end of every iteration
  */
 
-void PREFIX(end_iter)(void)
+void __specpriv_end_iter(void)
 {
-  Wid       wid = PREFIX(my_worker_id)();
-  Iteration iter = PREFIX(current_iter)();
+  Wid       wid = __specpriv_my_worker_id();
+  Iteration iter = __specpriv_current_iter();
   unsigned  stage = GET_MY_STAGE( wid ) ;
 
   if ( run_iteration(wid, iter) )
