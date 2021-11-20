@@ -1,19 +1,48 @@
+#include <assert.h>
+#include <stdio.h>
+#include <string.h>
+
+#include "emmintrin.h"
+#include "smmintrin.h"
+
+#include "api.h"
+#include "internals/affinity.h"
+#include "internals/debug.h"
+#include "internals/pcb.h"
+#include "internals/private.h"
+#include "internals/profile.h"
+#include "internals/strategy.h"
+#include "internals/utils.h"
+#include "internals/smtx/communicate.h"
+#include "internals/smtx/smtx.h"
+#include "internals/smtx/malloc.h"
+#include "internals/smtx/prediction.h"
+#include "internals/smtx/protection.h"
+#include "internals/smtx/separation.h"
+#include "internals/smtx/units.h"
+
+// cost = 3*o(1)
 static bool run_iteration(Wid wid, Iteration iter)
 {
+  // O(1) - look up corresponding stage to worker id
   unsigned stage = GET_MY_STAGE(wid);
+  // O(1) - look up number of worker threads in stage
   Wid      wid_offset = (Wid)iter % GET_REPLICATION_FACTOR(stage);
+  // O(1) - look up first worker id for given stage
   Wid      target_wid = GET_FIRST_WID_OF_STAGE(stage) + wid_offset;
 
   return target_wid == wid;
 }
 
+
 static void check_misspec(void)
 {
-  // O(pcb_size)
+  // IF the_pcb is NULL: O(pcb_size), create pcb memory
+  // ELSE O(1), return the_pcb
   PCB*      pcb = get_pcb();
-  // O(prefix+id)
-  Wid       wid = PREFIX(my_worker_id)();
-  // constant
+  // prefix func
+  Wid       wid = __specpriv_my_worker_id();
+  // O(1)
   Iteration iter = __specpriv_current_iter();
 
 }
@@ -25,6 +54,7 @@ uintptr_t *get_ebp(void)
   return r;
 }
 
+// cost = PAGE_SIZE
 static unsigned clear_read(uint8_t* shadow)
 {
   unsigned nonzero = 0;
