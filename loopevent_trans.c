@@ -39,6 +39,20 @@ char* stack_bound;
 Iteration current_iteration;
 cpu_set_t old_affinity;
 
+// begin_iter stuff
+  // [from_worker][to_worker] = queue of uncommitted pages
+ucvf_queues;
+data_heaps;
+queues;
+  // correspond to data heaps, protected vs none, per worker
+shadow_heaps;
+  // initialized by main, changed by workers
+int num_loop_invariant_loads;
+int num_contexts;
+  // [num_loop_invar_max][num_context_max]
+loop_invar_buff;
+linear_predictors;
+
 unsigned __specpriv_begin_invocation() {
     // stack_bound = (char*)get_ebp();
     unsigned long *r;
@@ -82,17 +96,15 @@ void __specpriv_begin_iter(Wid wid, Iteration iter) {
     unsigned i;
     for (i = 0 ; i < my_stage ; i++)
     {
-        Wid wid_offset = (Wid)iter % GET_REPLICATION_FACTOR(i);
-        Wid source_wid = GET_FIRST_WID_OF_STAGE(i) + wid_offset;
+        Wid source_wid = GET_FIRST_WID_OF_STAGE(i)
         bool done = false;
-
         while( !done ) {
             packet* p = (packet*)__sw_queue_consume( ucvf_queues[source_wid][wid] );
-            DUMPPACKET("\t", p);
             switch(p->type) {
                 case NORMAL: {
                     // packet comes as a pair
                     packet* shadow_p = (packet*)__sw_queue_consume( ucvf_queues[source_wid][wid] );
+                    // set shadow bit of p to true
                     update_normal_packet(p, shadow_p);
                     break;
                 }
@@ -116,33 +128,18 @@ void __specpriv_begin_iter(Wid wid, Iteration iter) {
                     break;
                 case ALLOC: {
                     if (p->size == 0) {
-                        unsigned valids = 0;
-                        packet_chunk*      chunk = (packet_chunk*)(p->value);
-                        VerMallocInstance* vmi = (VerMallocInstance*)(chunk->data);
-                        for (unsigned k = 0 ; k < PAGE_SIZE / sizeof(VerMallocInstance) ; k++) {
-                            if (!vmi->ptr) break;
-
-                            if (vmi->heap == -1) {
-                                update_ver_malloc( source_wid, vmi->size, (void*)vmi->ptr );
-                            }
-                            else {
-                                update_ver_separation_malloc( vmi->size, source_wid, (unsigned)(uint64_t)(vmi->heap), (void*)vmi->ptr );
-                            }
-                            valids++;
-                            vmi++;
-                        }
+                        // insert packet page into heaps
                         mark_packet_chunk_read(my_stage, chunk);
                     }
                     break;
                 }
                 case FREE:
-                    update_ver_free( source_wid, p->ptr );
                     break;
                 case BOI:
                     // nothing to do
                     break;
                 default:
-                    assert( false && "Unsupported type of packet" );
+                    break;
             }
             // mark packet consumed
             p->ptr = NULL;
@@ -156,12 +153,24 @@ void __specpriv_begin_iter(Wid wid, Iteration iter) {
 
     unsigned stage = GET_MY_STAGE( wid ) ;
     if (iter && !stage) {
-        update_loop_invariants();
-        update_linear_predicted_values();
-        to_try_commit( wid, (int8_t*)0xDEADBEEF, 0, 0, WRITE, BOI );
+        for (unsigned i = 0 ; i < num_loop_invariant_loads ; i++) {
+            for (unsigned j = 0 ; j < num_contexts ; j++) {   
+                // update_loop_invariants();     
+                // update_linear_predicted_values();
+                // buffer access, bit shift cost
+                // buffer access, bit shift cost
+            }
+        }
+        // to_try_commit
+        // send "packet" to queues[wid][i] for num_aux_workers (non first)
+        for (unsigned i = 0 ; i < num_aux_workers ; i++) {
+            packet* p = create_packet(wid, BOI);
+            __sw_queue_produce( queues[wid][i], (void*)p );
+        }
     }
-    if (run_iteration(wid, iter)) {
-        reset_protection(wid);
+    if (wid == GET_FIRST_WID_OF_STAGE(stage)) {
+        // reset_protection(wid);
+        // set all shadow heaps protection to none
     }
 }
 
@@ -173,8 +182,20 @@ void busy_wait() {
     // }
 }
 
-void __specpriv_end_iter() {
+void __specpriv_end_iter(Wid wid, Iteration iter) {
+    unsigned  stage = GET_MY_STAGE( wid ) ;
 
+    if (wid == GET_FIRST_WID_OF_STAGE(stage)) {
+        update_shadow_for_loop_invariants();
+        update_shadow_for_linear_predicted_values();  
+
+            // If there are ver_mallocs that not broadcasted yet, handle them first
+
+        VerMallocBuffer* buf = &(ver_malloc_buffer[wid]);
+        broadcast_malloc_chunk(wid, (int8_t*)(buf->elem), buf->index * sizeof(VerMallocInstance));
+        memset(buf->elem, 0, sizeof(VerMallocInstance) * PAGE_SIZE);
+        buf->index = 0;
+    }
 }
 
 Exit __specpriv_end_invocation() {
