@@ -1,15 +1,8 @@
 
 #include <stdint.h>
 #include <stdlib.h>
-// constants
-#define NUM_WORKERS 12
-#define BITS_SIZE 1024 / (8*sizeof(unsigned long))
-
-// types
-typedef uint32_t Exit;
-typedef uint32_t Wid;
-typedef uint32_t Iteration;
-
+#include "constants.h"
+#include "queue.c"
 // based off of s_parallel_control_block (pcb.h)
 typedef struct pcb {
     Exit exit_taken;
@@ -52,6 +45,9 @@ int num_contexts;
   // [num_loop_invar_max][num_context_max]
 loop_invar_buff;
 linear_predictors;
+
+// packet types
+enum {NORMAL, SUPER, DONE, ALLOC}
 
 unsigned __specpriv_begin_invocation() {
     // stack_bound = (char*)get_ebp();
@@ -121,9 +117,7 @@ void __specpriv_begin_iter(Wid wid, Iteration iter) {
                     }
                     break;
                 }
-                case EOI:
-                case MISSPEC:
-                case EOW:
+                case DONE:
                     done = true;
                     break;
                 case ALLOC: {
@@ -133,11 +127,6 @@ void __specpriv_begin_iter(Wid wid, Iteration iter) {
                     }
                     break;
                 }
-                case FREE:
-                    break;
-                case BOI:
-                    // nothing to do
-                    break;
                 default:
                     break;
             }
