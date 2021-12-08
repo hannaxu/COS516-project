@@ -46,8 +46,6 @@ int num_contexts;
 loop_invar_buff;
 linear_predictors;
 
-// packet types
-enum {NORMAL, SUPER, DONE, ALLOC}
 
 unsigned __specpriv_begin_invocation() {
     // stack_bound = (char*)get_ebp();
