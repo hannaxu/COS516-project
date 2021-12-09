@@ -15,7 +15,8 @@
 #define PACKET_POOL_SIZE (8192*2*4*8)
 
 //// changeable constants ////
-
+#define MAX_LOADS 12
+#define MAX_CONTEXTS 12
 
 // packet types
 enum {NORMAL, SUPER, DONE, ALLOC};

@@ -1,8 +1,9 @@
-
 #include <stdint.h>
 #include <stdlib.h>
 #include "constants.h"
 #include "queue.c"
+#include "packet.c"
+
 // based off of s_parallel_control_block (pcb.h)
 typedef struct pcb {
     Exit exit_taken;
@@ -25,7 +26,7 @@ typedef struct cpu_set {
 
 // globals
 // only one pcb?
-pcb_t* pcb = 0;
+pcb_t* pcb;
 char* stack_bound;
   // main process' iteration
   // how to imitate worker process' iterations?
@@ -34,17 +35,15 @@ cpu_set_t old_affinity;
 
 // begin_iter stuff
   // [from_worker][to_worker] = queue of uncommitted pages
-ucvf_queues;
-data_heaps;
-queues;
   // correspond to data heaps, protected vs none, per worker
+data_heaps;
 shadow_heaps;
-  // initialized by main, changed by workers
-int num_loop_invariant_loads;
-int num_contexts;
+// initialized by main, changed by workers
+int num_loop_invariant_loads = MAX_LOADS;
+int num_contexts = MAX_CONTEXTS;
   // [num_loop_invar_max][num_context_max]
-loop_invar_buff;
-linear_predictors;
+int64_t loop_invar_buff[MAX_LOADS][MAX_CONTEXTS];
+int64_t linear_predict_buff[MAX_LOADS][MAX_CONTEXTS];
 
 
 unsigned __specpriv_begin_invocation() {
@@ -56,19 +55,15 @@ unsigned __specpriv_begin_invocation() {
     // reset_current_iter();
     current_iteration = 0;
 
+    // **parallelization setting cores stuff is this relevant??**
     // sched_getaffinity(0, sizeof(cpu_set_t), &old_affinity);
     // cpu_set_t affinity;
-    // CPU_ZERO( &affinity );
-    // CPU_SET( CORE(0), &affinity );
+    // do __builtin_memset (&affinity, '\0', sizeof (cpu_set_t)); while (0);
+    // (__extension__ ({ size_t __cpu = (( 0 )); __cpu / 8 < (sizeof (cpu_set_t)) ? (((__cpu_mask *) ((&affinity)->__bits))[((__cpu) / (8 * sizeof (__cpu_mask)))] |= ((__cpu_mask) 1 << ((__cpu) % (8 * sizeof (__cpu_mask))))) : 0; }));
     // sched_setaffinity(0, sizeof(cpu_set_t), &affinity );
-    sched_getaffinity(0, sizeof(cpu_set_t), &old_affinity);
-    cpu_set_t affinity;
-    do __builtin_memset (&affinity, '\0', sizeof (cpu_set_t)); while (0);
-    (__extension__ ({ size_t __cpu = (( 0 )); __cpu / 8 < (sizeof (cpu_set_t)) ? (((__cpu_mask *) ((&affinity)->__bits))[((__cpu) / (8 * sizeof (__cpu_mask)))] |= ((__cpu_mask) 1 << ((__cpu) % (8 * sizeof (__cpu_mask))))) : 0; }));
-    sched_setaffinity(0, sizeof(cpu_set_t), &affinity );
 
     // initialize pcb
-    // calculate cost (PCB*)mmap(0, sizeof(PCB));
+    pcb = (pcb_t*)mmap(0, sizeof(pcb_t));
     pcb->exit_taken = 0;
     pcb->misspeculation_happened = 0;
     pcb->misspeculated_worker = 0;
@@ -90,8 +85,8 @@ void __specpriv_begin_iter(Wid wid, Iteration iter) {
     unsigned i;
     for (i = 0 ; i < my_stage ; i++)
     {
-        Wid source_wid = GET_FIRST_WID_OF_STAGE(i)
-        bool done = false;
+        Wid source_wid = GET_FIRST_WID_OF_STAGE(i);
+        int done = 0;
         while( !done ) {
             packet* p = (packet*)__sw_queue_consume( ucvf_queues[source_wid][wid] );
             switch(p->type) {
@@ -116,7 +111,7 @@ void __specpriv_begin_iter(Wid wid, Iteration iter) {
                     break;
                 }
                 case DONE:
-                    done = true;
+                    done = 1;
                     break;
                 case ALLOC: {
                     if (p->size == 0) {
@@ -134,15 +129,12 @@ void __specpriv_begin_iter(Wid wid, Iteration iter) {
     }
 
     // check_misspec()
-    if(!pcb) {
-        // calculate cost (PCB*)mmap(0, sizeof(PCB));
-    }
-
+    // assume no misspec
     unsigned stage = GET_MY_STAGE( wid ) ;
     if (iter && !stage) {
         for (unsigned i = 0 ; i < num_loop_invariant_loads ; i++) {
-            for (unsigned j = 0 ; j < num_contexts ; j++) {   
-                // update_loop_invariants();     
+            for (unsigned j = 0 ; j < num_contexts; j++) {   
+                // update_loop_invariants();
                 // update_linear_predicted_values();
                 // buffer access, bit shift cost
                 // buffer access, bit shift cost
@@ -196,13 +188,13 @@ void main(int num_workers, int num_iters) {
     for(int w = 0; w < num_workers; w++) {
         for(int iter = 0; iter < num_iters; iter++) {
             // begin_iter
-            __specpriv_begin_iter();
+            __specpriv_begin_iter(w, iter);
             // imitate busy waiting
             if(iter == 0) {
                 busy_wait();
             }
             // end_iter
-            __specpriv_end_iter();
+            __specpriv_end_iter(w, iter);
         }
     }
     //end_invocation
