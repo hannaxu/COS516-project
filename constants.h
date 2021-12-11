@@ -13,11 +13,20 @@
 #define PAGE_SIZE  (4*1024)
 // size of packet pools
 #define PACKET_POOL_SIZE (8192*2*4*8)
+// code for chunk checks
+#define CHECK_FREE     (0)
+#define CHECK_REQUIRED (1)
+#define CHECK_RO_PAGE  (2)
+// code for ALLOC broadcast
+// write 
+#define REGULAR    (0)
+#define SEPARATION (1)
 
 //// changeable constants ////
 #define MAX_LOADS 12
 #define MAX_CONTEXTS 12
-
+int32_t num_aux_workers = 2;
+#define NUM_HEAPS 20
 // packet types
 enum {NORMAL, SUPER, DONE, ALLOC};
 

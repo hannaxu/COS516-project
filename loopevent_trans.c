@@ -115,7 +115,25 @@ void __specpriv_begin_iter(Wid wid, Iteration iter) {
                     break;
                 case ALLOC: {
                     if (p->size == 0) {
-                        // insert packet page into heaps
+                        unsigned valids = 0;
+                        packet_chunk* chunk = (packet_chunk*)(p->value);
+                        VerMallocInstance* vmi = (VerMallocInstance*)(chunk->data);
+                        for (unsigned k = 0 ; k < PAGE_SIZE / sizeof(VerMallocInstance) ; k++)
+                        {
+                            if (!vmi->ptr) break;
+
+                            if (vmi->heap == -1)
+                            {
+                                update_ver_malloc( source_wid, vmi->size, (void*)vmi->ptr );
+                            }
+                            else
+                            {
+                                update_ver_separation_malloc( vmi->size, source_wid, (unsigned)(uint64_t)(vmi->heap), (void*)vmi->ptr );
+                            }
+
+                            valids++;
+                            vmi++;
+                        }
                         mark_packet_chunk_read(my_stage, chunk);
                     }
                     break;
@@ -143,7 +161,7 @@ void __specpriv_begin_iter(Wid wid, Iteration iter) {
         // to_try_commit
         // send "packet" to queues[wid][i] for num_aux_workers (non first)
         for (unsigned i = 0 ; i < num_aux_workers ; i++) {
-            packet* p = create_packet(wid, BOI);
+            packet* p = create_packet(wid, -1);
             __sw_queue_produce( queues[wid][i], (void*)p );
         }
     }
@@ -152,13 +170,44 @@ void __specpriv_begin_iter(Wid wid, Iteration iter) {
         // set all shadow heaps protection to none
     }
 }
+// cost of ONE busy wait operation (one iteration)
+void busy_wait(Wid wid) {
+    //  process_reverse_commit_queue(wid);
+    queue_t* queue = reverse_commit_queues[wid];
+    while ( !__sw_queue_empty( queue ) ) {
+        packet* p = (packet*)__sw_queue_consume( queue );
+    if (p->is_write == REGULAR)
+    {
+      // For REGULAR type ALLOC packet, p->value is the source id.
 
-void busy_wait() {
-    // if (iter) {
-    //  while (!(*good_to_go)) {
-    //      process_reverse_commit_queue(wid);
-    //  }
-    // }
+      Wid source_wid = (Wid)((uint64_t)p->value);
+
+      unsigned src_wid_stage = GET_MY_STAGE(source_wid);
+      unsigned my_stage = GET_MY_STAGE(wid);
+
+      if ( (src_wid_stage >= my_stage) && (source_wid != wid) )
+      {
+        update_ver_malloc( source_wid, p->size, p->ptr );
+      }
+    }
+    else
+    {
+      assert( p->is_write == SEPARATION );
+
+      // For SEPARATION type ALLOC packet, p->value is a pack of heapid and source wid
+
+      Wid      source_wid = (Wid)( (uint64_t)(p->value) >> 32 );
+      unsigned heapid = (unsigned)((uint64_t)(p->value));
+
+      unsigned src_wid_stage = GET_MY_STAGE(source_wid);
+      unsigned my_stage = GET_MY_STAGE(wid);
+
+      if ( (src_wid_stage >= my_stage) && (source_wid != wid) )
+      {
+        update_ver_separation_malloc( p->size, source_wid, heapid, p->ptr );
+      }
+    }
+
 }
 
 void __specpriv_end_iter(Wid wid, Iteration iter) {
@@ -178,7 +227,10 @@ void __specpriv_end_iter(Wid wid, Iteration iter) {
 }
 
 Exit __specpriv_end_invocation() {
-
+    Exit exit = pcb->exit_taken;
+    munmap(pcb, sizeof(pcb_t));
+    pcb = 0;
+    return exit;
 }
 
 // imitate main process and spawned worker processes
