@@ -106,9 +106,6 @@ void init_queues(unsigned n_workers, unsigned n_aux_workers)
     ucvf_queues[i] = (queue_t**)mmap(0, sizeof(queue_t*)*n_workers, prot, flags, -1, 0);
 
     for (j = i+1 ; j < n_workers ; j++)
-      if ( GET_MY_STAGE(i) == GET_MY_STAGE(j) )
-        continue;
-      else
         ucvf_queues[i][j] = __sw_queue_create();
   }
 
