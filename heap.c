@@ -21,6 +21,17 @@ shadow_t shadow_heaps[NUM_HEAPS];
 shadow_t shadow_globals[NUM_GLOBALS];
 shadow_t shadow_stacks[NUM_STACKS];
 
+void init_heaps(int global_size, int heap_size, int stack_size) {
+    for(int i = 0; i < NUM_HEAPS; i++) {
+        shadow_heaps[i].size = heap_size;
+    }
+    for(int i = 0; i < NUM_GLOBALS; i++) {
+        shadow_globals[i].size = global_size;
+    }
+    for(int i = 0; i < NUM_STACKS; i++) {
+        shadow_stacks[i].size = stack_size;
+    }
+}
 // cost, no actual action
 void update_ver_malloc() {
     // COST OF: mmap(VER_MALLOC_CHUNKSIZE)

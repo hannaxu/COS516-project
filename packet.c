@@ -70,6 +70,10 @@ void init_packets(unsigned n_all_workers) {
     }
 }
 
+packet* create_packet(Wid wid, int type) {
+    return (packet*)malloc(sizeof(packet));
+}
+
 // release packets
 void fini_packets(unsigned n_all_workers) {
     unsigned i;

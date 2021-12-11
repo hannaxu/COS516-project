@@ -44,15 +44,32 @@ int num_contexts = MAX_CONTEXTS;
 int64_t loop_invar_buff[MAX_LOADS][MAX_CONTEXTS];
 int64_t linear_predict_buff[MAX_LOADS][MAX_CONTEXTS];
 
+// int stages[NUM_ITERS][NUM_STAGES];
 
-unsigned __specpriv_begin_invocation() {
+
+// int get_stage(Wid wid, Iteration iter) {
+//     int offset = wid % NUM_WORKERS_PER_HEAP;
+//     return (iter%NUM_WORKERS_PER_HEAP)*NUM_ITERS/(NUM_WORKERS_PER_HEAP)+offset;
+// }
+
+unsigned __specpriv_begin_invocation(int global_size, int heap_size, int stack_size) {
+    // initialize stages
+    // 1 stage per 1 heap
+    // 2 workers per stage
+    // 2 aux workers
+
+    // initialize queues
+    init_queues(NUM_WORKERS, num_aux_workers);
+    // initialize heaps
+    init_heaps(global_size, heap_size, stack_size);
+
+
     // stack_bound = (char*)get_ebp();
-    unsigned long *r;
-    __asm__ volatile ("mov %%rbp, %[r]" : /* output */ [r] "=r" (r));
-    stack_bound = (char *)r;
+    // unsigned long *r;
+    // __asm__ volatile ("mov %%rbp, %[r]" : /* output */ [r] "=r" (r));
+    // stack_bound = (char *)r;
 
     // reset_current_iter();
-    current_iteration = 0;
 
     // **parallelization setting cores stuff is this relevant??**
     // sched_getaffinity(0, sizeof(cpu_set_t), &old_affinity);
@@ -73,7 +90,7 @@ unsigned __specpriv_begin_invocation() {
     return (unsigned) NUM_WORKERS;
 }
 // remove busy waiting
-void __specpriv_begin_iter(Wid wid, Iteration iter, unsigned my_stage, int num_loop_invariant_loads, int num_contexts) {
+void __specpriv_begin_iter(Wid wid, Iteration iter, unsigned my_stage, int num_loop_invariant_loads, int num_contexts, int is_my_iter) {
     // Wid       wid = __specpriv_my_worker_id();
     // Iteration iter = __specpriv_current_iter();
 
@@ -83,7 +100,7 @@ void __specpriv_begin_iter(Wid wid, Iteration iter, unsigned my_stage, int num_l
     unsigned i;
     for (i = 0 ; i < my_stage ; i++)
     {
-        Wid source_wid = GET_FIRST_WID_OF_STAGE(i);
+        Wid source_wid = 0;
         int done = 0;
         while( !done ) {
             packet* p = (packet*)__sw_queue_consume( ucvf_queues[source_wid][wid] );
@@ -140,8 +157,7 @@ void __specpriv_begin_iter(Wid wid, Iteration iter, unsigned my_stage, int num_l
 
     // check_misspec()
     // assume no misspec
-    unsigned stage = GET_MY_STAGE( wid ) ;
-    if (iter && !stage) {
+    if (iter && !my_stage) {
         for (unsigned i = 0 ; i < num_loop_invariant_loads ; i++) {
             for (unsigned j = 0 ; j < num_contexts; j++) {   
                 // update_loop_invariants();
@@ -157,46 +173,47 @@ void __specpriv_begin_iter(Wid wid, Iteration iter, unsigned my_stage, int num_l
             __sw_queue_produce( queues[wid][i], (void*)p );
         }
     }
-    if (wid == GET_FIRST_WID_OF_STAGE(stage)) {
+    if (is_my_iter) {
         set_shadow_heaps(NUM_HEAPS);
     }
 }
 // cost of ONE busy wait operation (one iteration)
-void busy_wait(Wid wid) {
+void busy_wait(Wid wid, int my_stage) {
     //  process_reverse_commit_queue(wid);
     queue_t* queue = reverse_commit_queues[wid];
     while ( !__sw_queue_empty( queue ) ) {
         packet* p = (packet*)__sw_queue_consume( queue );
-    if (p->is_write == REGULAR)
-    {
-      // For REGULAR type ALLOC packet, p->value is the source id.
+        if (p->is_write == REGULAR)
+        {
+            // For REGULAR type ALLOC packet, p->value is the source id.
 
-      Wid source_wid = (Wid)((uint64_t)p->value);
+            Wid source_wid = (Wid)((uint64_t)p->value);
 
-      unsigned src_wid_stage = GET_MY_STAGE(source_wid);
-      unsigned my_stage = GET_MY_STAGE(wid);
+            unsigned src_wid_stage = my_stage;
+            unsigned my_stage = my_stage;
 
-      if ( (src_wid_stage >= my_stage) && (source_wid != wid) )
-      {
-        update_ver_malloc( source_wid, p->size, p->ptr );
-      }
-    }
-    else
-    {
-      assert( p->is_write == SEPARATION );
+            if ( (src_wid_stage >= my_stage) && (source_wid != wid) )
+            {
+                update_ver_malloc( source_wid, p->size, p->ptr );
+            }
+        }
+        else
+        {
+        assert( p->is_write == SEPARATION );
 
-      // For SEPARATION type ALLOC packet, p->value is a pack of heapid and source wid
+        // For SEPARATION type ALLOC packet, p->value is a pack of heapid and source wid
 
-      Wid source_wid = (Wid)( (uint64_t)(p->value) >> 32 );
-      unsigned heapid = (unsigned)((uint64_t)(p->value));
+        Wid source_wid = (Wid)( (uint64_t)(p->value) >> 32 );
+        unsigned heapid = (unsigned)((uint64_t)(p->value));
 
-      unsigned src_wid_stage = GET_MY_STAGE(source_wid);
-      unsigned my_stage = GET_MY_STAGE(wid);
+        unsigned src_wid_stage = my_stage;
+        unsigned my_stage = my_stage;
 
-      if ( (src_wid_stage >= my_stage) && (source_wid != wid) )
-      {
-        update_ver_separation_malloc( p->size, source_wid, heapid, p->ptr );
-      }
+        if ( (src_wid_stage >= my_stage) && (source_wid != wid) )
+        {
+            update_ver_separation_malloc( p->size, source_wid, heapid, p->ptr );
+        }
+        }
     }
 }
 
@@ -205,15 +222,15 @@ void forward_packet(Wid wid, int shadow_size, int my_stage) {
         if (wid == GET_FIRST_WID_OF_STAGE(my_stage))
             get_available_commit_process_packet();
         else
-            get_available_packet();
-        packet* p = create_packet(wid, addr, (void*)chunk, sizeof(packet_chunk), check, SUPER);
+            get_available_packet(wid);
+        packet* p = create_packet(wid, SUPER);
         __sw_queue_produce( ucvf_queues[wid][i], (void*)p );
     }
-    packet* p = create_packet(wid, addr, (void*)chunk, sizeof(packet_chunk), check, SUPER);
-    __sw_queue_produce( queues[wid][target_try_commit_id], (void*)p );
+    packet* p = create_packet(wid, SUPER);
+    __sw_queue_produce( queues[wid][wid], (void*)p );
 }
 
-void forward_pair(Wid wid, int shadow_size, int size, int my_stage) {
+void forward_pair(Wid wid, int shadow_size, int my_stage) {
     // actual is heap, shadow
     forward_packet(wid, shadow_size, my_stage);
     forward_packet(wid, shadow_size, my_stage);
@@ -230,18 +247,19 @@ void __specpriv_end_iter(Wid wid, Iteration iter, int my_stage) {
         update_shadow_for_linear_predicted_values();  
 
             // If there are ver_mallocs that not broadcasted yet, handle them first
-        broadcast_malloc_chunk(wid, (int8_t*)(buf->elem), buf->index * sizeof(VerMallocInstance));
-        memset(buf->elem, 0, sizeof(VerMallocInstance) * PAGE_SIZE);
-        buf->index = 0;
+        // TODO?? it's so messy
+        // broadcast_malloc_chunk(wid, (int8_t*)(buf->elem), buf->index * sizeof(VerMallocInstance));
+        // memset(buf->elem, 0, sizeof(VerMallocInstance) * PAGE_SIZE);
+        // buf->index = 0;
 
         for(size_t i=0; i < NUM_GLOBALS; i++) {
-            forward_pair(shadow_globals[i].size);
+            forward_pair(wid, shadow_globals[i].size, my_stage);
         }
         for(size_t i=0; i < NUM_HEAPS; i++) {
-            forward_pair(shadow_heaps[i].size);
+            forward_pair(wid, shadow_heaps[i].size, my_stage);
         }
         for(size_t i=0; i < NUM_STACKS; i++) {
-            forward_pair(shadow_stacks[i].size);
+            forward_pair(wid, shadow_stacks[i].size, my_stage);
         }
     }
 }
@@ -254,19 +272,26 @@ Exit __specpriv_end_invocation() {
 }
 
 // imitate main process and spawned worker processes
-void main(void) {
+void main() {
     // begin_invocation
-    __specpriv_begin_invocation();
+    int jump = NUM_STAGES/(NUM_WORKERS/NUM_WORKERS_PER_HEAP);
+    __specpriv_begin_invocation(MAX_GLOBAL_SIZE, MAX_HEAP_SIZE, MAX_STACK_SIZE);
     for(int w = 0; w < NUM_WORKERS; w++) {
+        int my_stage = w%NUM_WORKERS_PER_HEAP;
+        int is_my_iter = 0;
         for(int iter = 0; iter < NUM_ITERS; iter++) {
+            if (iter && iter % NUM_WORKERS_PER_HEAP == 0)
+                my_stage += jump;
+            if (w % NUM_WORKERS_PER_HEAP == iter % NUM_WORKERS_PER_HEAP)
+                is_my_iter = 1;
             // begin_iter
-            __specpriv_begin_iter(w, iter, my_stage, num_loop_invariant_loads, num_contexts);
+            __specpriv_begin_iter(w, iter, my_stage, num_loop_invariant_loads, num_contexts, is_my_iter);
             // imitate busy waiting
             if(iter == 0) {
-                busy_wait(w);
+                busy_wait(w, my_stage);
             }
             // end_iter
-            __specpriv_end_iter(w, iter);
+            __specpriv_end_iter(w, iter, my_stage);
         }
     }
     //end_invocation

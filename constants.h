@@ -7,16 +7,20 @@ int __cost = 0;
 //// changeable constants ////
 #define MAX_LOADS 12
 #define MAX_CONTEXTS 12
-int32_t num_aux_workers = 2;
+#define num_aux_workers 2
 #define NUM_HEAPS 20
 #define NUM_GLOBALS 20
 #define NUM_STACKS 20
-#define NUM_ITERS 5
+#define MAX_GLOBAL_SIZE (0x1000)
+#define MAX_STACK_SIZE (0x1000)
+#define MAX_HEAP_SIZE (0x1000)
+#define NUM_WORKERS_PER_HEAP 2
 //////////////////////////////
 
 //// given constants ////
 #define NUM_STAGES NUM_HEAPS
-#define NUM_WORKERS 12
+#define NUM_WORKERS 12-num_aux_workers
+#define NUM_ITERS (NUM_HEAPS / (NUM_WORKERS/NUM_WORKERS_PER_HEAP))*NUM_WORKERS_PER_HEAP
 #define BITS_SIZE 1024 / (8*sizeof(unsigned long))
 #define QUEUE_SIZE 8192*2
 // maximum number of stages
