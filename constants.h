@@ -2,7 +2,20 @@
 #define CONSTANTS_H
 
 #include <stdint.h>
+/// global cost ///
+int __cost = 0;
+//// changeable constants ////
+#define MAX_LOADS 12
+#define MAX_CONTEXTS 12
+int32_t num_aux_workers = 2;
+#define NUM_HEAPS 20
+#define NUM_GLOBALS 20
+#define NUM_STACKS 20
+#define NUM_ITERS 5
+//////////////////////////////
+
 //// given constants ////
+#define NUM_STAGES NUM_HEAPS
 #define NUM_WORKERS 12
 #define BITS_SIZE 1024 / (8*sizeof(unsigned long))
 #define QUEUE_SIZE 8192*2
@@ -22,14 +35,6 @@
 #define REGULAR    (0)
 #define SEPARATION (1)
 
-//// changeable constants ////
-#define MAX_LOADS 12
-#define MAX_CONTEXTS 12
-int32_t num_aux_workers = 2;
-#define NUM_HEAPS 20
-// packet types
-enum {NORMAL, SUPER, DONE, ALLOC};
-
 // types
 typedef uint32_t Exit;
 typedef uint32_t Wid;
@@ -41,5 +46,22 @@ typedef uint32_t Iteration;
 #define MAP_SHARED	0x01		/* Share changes.  */
 #define MAP_PRIVATE	0x02		/* Changes are private.  */
 #define MAP_ANONYMOUS	0x20		/* Don't use a file.  */
+// packet types
+enum {NORMAL, SUPER, DONE, ALLOC};
+
+// heap sizes
+#define VER_MALLOC_CHUNKSIZE   (0x1000) // 4K
+#define SEPARATION_HEAP_CHUNKSIZE (0x1000) // 4K
+typedef struct VerMallocInstance
+{
+  uint64_t ptr;
+  uint32_t size;
+  int32_t  heap;
+}VerMallocInstance;
+
+// wid, stage, iter, corresponding heap setup
+// GET_MY_STAGE
+// GET_ASSIGNED_HEAP
+// GET_FIRST_WID_OF_STAGE
 
 #endif

@@ -3,6 +3,7 @@
 #include "constants.h"
 #include "queue.c"
 #include "packet.c"
+#include "heap.c"
 
 // based off of s_parallel_control_block (pcb.h)
 typedef struct pcb {
@@ -36,8 +37,6 @@ cpu_set_t old_affinity;
 // begin_iter stuff
   // [from_worker][to_worker] = queue of uncommitted pages
   // correspond to data heaps, protected vs none, per worker
-data_heaps;
-shadow_heaps;
 // initialized by main, changed by workers
 int num_loop_invariant_loads = MAX_LOADS;
 int num_contexts = MAX_CONTEXTS;
@@ -74,14 +73,13 @@ unsigned __specpriv_begin_invocation() {
     return (unsigned) NUM_WORKERS;
 }
 // remove busy waiting
-void __specpriv_begin_iter(Wid wid, Iteration iter) {
+void __specpriv_begin_iter(Wid wid, Iteration iter, unsigned my_stage, int num_loop_invariant_loads, int num_contexts) {
     // Wid       wid = __specpriv_my_worker_id();
     // Iteration iter = __specpriv_current_iter();
 
     //  busy waiting is called separately
 
     // process_incoming_packets( wid, iter );
-    unsigned my_stage = GET_MY_STAGE(wid);
     unsigned i;
     for (i = 0 ; i < my_stage ; i++)
     {
@@ -93,20 +91,21 @@ void __specpriv_begin_iter(Wid wid, Iteration iter) {
                 case NORMAL: {
                     // packet comes as a pair
                     packet* shadow_p = (packet*)__sw_queue_consume( ucvf_queues[source_wid][wid] );
-                    // set shadow bit of p to true
-                    update_normal_packet(p, shadow_p);
+                    // set shadow bit of p to true, irrelevant cost
+                    // update_normal_packet(p, shadow_p);
                     break;
                 }
                 case SUPER: {
                     if (p->is_write == CHECK_RO_PAGE) {
-                        // basically do nothing
-                        packet_chunk* mem_chunk = (packet_chunk*)(p->value);
-                        mark_packet_chunk_read(my_stage, mem_chunk);
+                        // basically do nothing, irrelevant cost
+                        // packet_chunk* mem_chunk = (packet_chunk*)(p->value);
+                        // mark_packet_chunk_read(my_stage, mem_chunk);
                     }
                     else {
                         // packet comes as a pair
                         packet* shadow_p = (packet*)__sw_queue_consume( ucvf_queues[source_wid][wid] );
-                        update_super_packet(my_stage, p, shadow_p);
+                        // update_super_packet(my_stage, p, shadow_p);
+                        update_page(PAGE_SIZE);
                     }
                     break;
                 }
@@ -117,24 +116,17 @@ void __specpriv_begin_iter(Wid wid, Iteration iter) {
                     if (p->size == 0) {
                         unsigned valids = 0;
                         packet_chunk* chunk = (packet_chunk*)(p->value);
-                        VerMallocInstance* vmi = (VerMallocInstance*)(chunk->data);
                         for (unsigned k = 0 ; k < PAGE_SIZE / sizeof(VerMallocInstance) ; k++)
                         {
-                            if (!vmi->ptr) break;
-
-                            if (vmi->heap == -1)
+                            if (heaps[GET_ASSIGNED_HEAP(wid, my_stage)].is_ver)
                             {
-                                update_ver_malloc( source_wid, vmi->size, (void*)vmi->ptr );
+                                update_ver_malloc();
                             }
                             else
                             {
-                                update_ver_separation_malloc( vmi->size, source_wid, (unsigned)(uint64_t)(vmi->heap), (void*)vmi->ptr );
+                                update_ver_separation_malloc();
                             }
-
-                            valids++;
-                            vmi++;
                         }
-                        mark_packet_chunk_read(my_stage, chunk);
                     }
                     break;
                 }
@@ -166,8 +158,7 @@ void __specpriv_begin_iter(Wid wid, Iteration iter) {
         }
     }
     if (wid == GET_FIRST_WID_OF_STAGE(stage)) {
-        // reset_protection(wid);
-        // set all shadow heaps protection to none
+        set_shadow_heaps(NUM_HEAPS);
     }
 }
 // cost of ONE busy wait operation (one iteration)
@@ -196,7 +187,7 @@ void busy_wait(Wid wid) {
 
       // For SEPARATION type ALLOC packet, p->value is a pack of heapid and source wid
 
-      Wid      source_wid = (Wid)( (uint64_t)(p->value) >> 32 );
+      Wid source_wid = (Wid)( (uint64_t)(p->value) >> 32 );
       unsigned heapid = (unsigned)((uint64_t)(p->value));
 
       unsigned src_wid_stage = GET_MY_STAGE(source_wid);
@@ -207,22 +198,51 @@ void busy_wait(Wid wid) {
         update_ver_separation_malloc( p->size, source_wid, heapid, p->ptr );
       }
     }
-
 }
 
-void __specpriv_end_iter(Wid wid, Iteration iter) {
-    unsigned  stage = GET_MY_STAGE( wid ) ;
+void forward_packet(Wid wid, int shadow_size, int my_stage) {
+    for(unsigned i=my_stage+1; i < NUM_STAGES; i++) {
+        if (wid == GET_FIRST_WID_OF_STAGE(my_stage))
+            get_available_commit_process_packet();
+        else
+            get_available_packet();
+        packet* p = create_packet(wid, addr, (void*)chunk, sizeof(packet_chunk), check, SUPER);
+        __sw_queue_produce( ucvf_queues[wid][i], (void*)p );
+    }
+    packet* p = create_packet(wid, addr, (void*)chunk, sizeof(packet_chunk), check, SUPER);
+    __sw_queue_produce( queues[wid][target_try_commit_id], (void*)p );
+}
 
-    if (wid == GET_FIRST_WID_OF_STAGE(stage)) {
+void forward_pair(Wid wid, int shadow_size, int size, int my_stage) {
+    // actual is heap, shadow
+    forward_packet(wid, shadow_size, my_stage);
+    forward_packet(wid, shadow_size, my_stage);
+    for(unsigned i = 0; i < PAGE_SIZE; i+=8) {
+        forward_packet(wid, 8, my_stage);
+        forward_packet(wid, 8, my_stage);
+    }
+}
+
+void __specpriv_end_iter(Wid wid, Iteration iter, int my_stage) {
+
+    if (wid == my_stage) {
         update_shadow_for_loop_invariants();
         update_shadow_for_linear_predicted_values();  
 
             // If there are ver_mallocs that not broadcasted yet, handle them first
-
-        VerMallocBuffer* buf = &(ver_malloc_buffer[wid]);
         broadcast_malloc_chunk(wid, (int8_t*)(buf->elem), buf->index * sizeof(VerMallocInstance));
         memset(buf->elem, 0, sizeof(VerMallocInstance) * PAGE_SIZE);
         buf->index = 0;
+
+        for(size_t i=0; i < NUM_GLOBALS; i++) {
+            forward_pair(shadow_globals[i].size);
+        }
+        for(size_t i=0; i < NUM_HEAPS; i++) {
+            forward_pair(shadow_heaps[i].size);
+        }
+        for(size_t i=0; i < NUM_STACKS; i++) {
+            forward_pair(shadow_stacks[i].size);
+        }
     }
 }
 
@@ -234,16 +254,16 @@ Exit __specpriv_end_invocation() {
 }
 
 // imitate main process and spawned worker processes
-void main(int num_workers, int num_iters) {
+void main(void) {
     // begin_invocation
     __specpriv_begin_invocation();
-    for(int w = 0; w < num_workers; w++) {
-        for(int iter = 0; iter < num_iters; iter++) {
+    for(int w = 0; w < NUM_WORKERS; w++) {
+        for(int iter = 0; iter < NUM_ITERS; iter++) {
             // begin_iter
-            __specpriv_begin_iter(w, iter);
+            __specpriv_begin_iter(w, iter, my_stage, num_loop_invariant_loads, num_contexts);
             // imitate busy waiting
             if(iter == 0) {
-                busy_wait();
+                busy_wait(w);
             }
             // end_iter
             __specpriv_end_iter(w, iter);
