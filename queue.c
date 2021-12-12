@@ -36,8 +36,6 @@ queue_t* __sw_queue_create(void)
 
 void __sw_queue_produce(queue_t* queue, void* value)
 {
-  while (*(queue->head) != (void*) SW_QUEUE_NULL);
-
   *(queue->head+1) = (void*)value;
 
   *queue->head = (void *) SW_QUEUE_OCCUPIED;
@@ -50,7 +48,6 @@ void __sw_queue_produce(queue_t* queue, void* value)
 void* __sw_queue_consume(queue_t* queue) 
 {
   void *value;
-  while ((*queue->tail) == (void*) SW_QUEUE_NULL);
 
   value = *( (queue->tail)+1 );
   *( (queue->tail)+1 ) = (void*) SW_QUEUE_NULL;

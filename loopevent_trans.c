@@ -57,7 +57,8 @@ unsigned __specpriv_begin_invocation(int global_size, int heap_size, int stack_s
     // 1 stage per 1 heap
     // 2 workers per stage
     // 2 aux workers
-
+    // init packets
+    init_packets(NUM_WORKERS+num_aux_workers);
     // initialize queues
     init_queues(NUM_WORKERS, num_aux_workers);
     // initialize heaps
@@ -268,6 +269,8 @@ Exit __specpriv_end_invocation() {
     Exit exit = pcb->exit_taken;
     munmap(pcb, sizeof(pcb_t));
     pcb = 0;
+    fini_packets(NUM_WORKERS+num_aux_workers);
+    fini_queues(NUM_WORKERS, num_aux_workers);
     return exit;
 }
 
