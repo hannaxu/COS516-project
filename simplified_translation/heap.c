@@ -47,7 +47,7 @@ void update_ver_separation_malloc() {
 
 // cost, no actual action
 void update_page(int page_size) {
-    for (unsigned i = 0 ; i < PAGE_SIZE ; i += 16) {
+    for (unsigned i = 0 ; i < page_size ; i += 16) {
         // COST OF: 
         // uint64_t m0 = (*((uint64_t*)(&shadow[i]))) << 6;
         // uint64_t m1 = (*((uint64_t*)(&shadow[i+8]))) << 6;
