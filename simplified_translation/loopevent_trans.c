@@ -36,6 +36,7 @@ void __specpriv_begin_iter(int wid, int iter, int my_stage, int is_my_iter) {
 		    __cost += 1;
                     // COST OF: (bit shift) * 8
 		    __cost += 1;
+		    break;
                 }
                 case SUPER: {
                     // replacement of p->is_write == CHECK_RO_PAGE
@@ -57,7 +58,6 @@ void __specpriv_begin_iter(int wid, int iter, int my_stage, int is_my_iter) {
                 case ALLOC: {
                     // get rid of size conditional, assume happends
                     for(int k = 0; k < PAGE_SIZE/sizeof(VerMallocInstance); k++) {
-                        // FIX ASSIGNED HEAP?
                         if(heaps[wid].is_ver) {
                             update_ver_malloc();
                         }
