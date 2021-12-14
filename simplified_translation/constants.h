@@ -1,7 +1,6 @@
 #ifndef CONSTANTS_H
 #define CONSTANTS_H
 
-#include <stdint.h>
 /// global cost ///
 int __cost = 0;
 //// changeable constants ////

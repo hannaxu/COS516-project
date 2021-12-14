@@ -1,5 +1,4 @@
 #include "constants.h"
-#include <stdlib.h>
 
 // value represents size of invariant, max size = 8
 int loop_invariant_buffer[MAX_LOADS][MAX_CONTEXTS];
@@ -11,6 +10,14 @@ void init_buffers(int num_loop_invariant_loads, int num_contexts) {
             // COST OF: mmap both buffers
             loop_invariant_buffer[i][j] = 0;
             linear_predictors[i][j] = 0;
+        }
+    }
+}
+
+void uninit_buffers(int num_loop_invariant_loads, int num_contexts) {
+    for(int i = 0; i < num_loop_invariant_loads; i++) {
+        for(int j = 0; j < num_contexts; j++) {
+            // COST OF: munmap both buffers
         }
     }
 }
@@ -50,8 +57,9 @@ int update_shadow_loop_invariants(int num_loop_invariant_loads, int num_contexts
             }
         }
     }
-    if(change > MAX_LOADS || change <= 0)
+    if(change > MAX_LOADS || change <= 0) {
         change = MAX_LOADS;
+    }
     return change;
 }
 
@@ -70,7 +78,8 @@ int update_shadow_linear_predicted_values(int num_loop_invariant_loads, int num_
             }
         }
     }
-    if(change > MAX_CONTEXTS || change <= 0)
+    if(change > MAX_CONTEXTS || change <= 0) {
         change = MAX_CONTEXTS;
+    }
     return change;
 }

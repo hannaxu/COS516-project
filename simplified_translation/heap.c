@@ -32,6 +32,7 @@ void init_heaps(int global_size, int heap_size, int stack_size) {
         shadow_stacks[i].size = stack_size;
     }
 }
+
 // cost, no actual action
 void update_ver_malloc() {
     // COST OF: mmap(VER_MALLOC_CHUNKSIZE)
@@ -63,6 +64,6 @@ void update_page(int page_size) {
 void set_shadow_heaps(int num_heaps) {
     for(int i = 0; i < num_heaps; i++) {
         // COST OF:
-        // bit shift operations?
+        // bit shift operations
     }
 }
