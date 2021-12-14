@@ -36,12 +36,14 @@ void init_heaps(int global_size, int heap_size, int stack_size) {
 // cost, no actual action
 void update_ver_malloc() {
     // COST OF: mmap(VER_MALLOC_CHUNKSIZE)
+    __cost += 200;
     // VER_MALLOC_CHUNKSIZE defined in constants.h
 }
 
 // cost, no actual action
 void update_ver_separation_malloc() {
     // COST OF: mmap(SEPARATION_HEAP_CHUNKSIZE)*2
+    __cost += 400;
     // SEPARATION_HEAP_CHUNKSIZE defined in constants.h
     // *2 for heap, shadow heap
 }
@@ -54,6 +56,7 @@ void update_page(int page_size) {
         // uint64_t m1 = (*((uint64_t*)(&shadow[i+8]))) << 6;
         // uint64_t d0 = (*((uint64_t*)(&data[i])));
         // uint64_t d1 = (*((uint64_t*)(&data[i+8])));
+	__cost += 56;
 
         // __m128i m = _mm_set_epi32((int)(m1 >> 32), (int)m1, (int)(m0 >> 32), (int)m0);
         // __m128i d = _mm_set_epi32((int)(d1 >> 32), (int)d1, (int)(d0 >> 32), (int)d0);
@@ -65,5 +68,6 @@ void set_shadow_heaps(int num_heaps) {
     for(int i = 0; i < num_heaps; i++) {
         // COST OF:
         // bit shift operations
+	__cost += 1;
     }
 }

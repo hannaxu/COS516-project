@@ -8,6 +8,7 @@ void init_buffers(int num_loop_invariant_loads, int num_contexts) {
     for(int i = 0; i < num_loop_invariant_loads; i++) {
         for(int j = 0; j < num_contexts; j++) {
             // COST OF: mmap both buffers
+	    __cost += 400;
             loop_invariant_buffer[i][j] = 0;
             linear_predictors[i][j] = 0;
         }
@@ -18,6 +19,7 @@ void uninit_buffers(int num_loop_invariant_loads, int num_contexts) {
     for(int i = 0; i < num_loop_invariant_loads; i++) {
         for(int j = 0; j < num_contexts; j++) {
             // COST OF: munmap both buffers
+	    __cost += 1000;
         }
     }
 }
@@ -27,6 +29,7 @@ void update_loop_invariants(int num_loop_invariant_loads, int num_contexts) {
     for(int i = 0; i < num_loop_invariant_loads; i++) {
         for(int j = 0; j < num_contexts; j++) {
             // COST OF: 4 bit operations
+	    __cost += 4;
             loop_invariant_buffer[i][j] = (loop_invariant_buffer[i][j]+i) % 8;
         }
     }
@@ -37,6 +40,7 @@ void update_linear_predicted_values(int num_loop_invariant_loads, int num_contex
     for(int i = 0; i < num_loop_invariant_loads; i++) {
         for(int j = 0; j < num_contexts; j++) {
             // COST OF: 4 bit operations
+	    __cost += 4;
             linear_predictors[i][j] = (linear_predictors[i][j]+j) % 8;
         }
     }
@@ -48,8 +52,10 @@ int update_shadow_loop_invariants(int num_loop_invariant_loads, int num_contexts
     for(int i = 0; i < num_loop_invariant_loads; i++) {
         for(int j = 0; j < num_contexts; j++) {
             // COST OF: 4 bit operations
+	    __cost += 4;
             for(int k = 0; k < loop_invariant_buffer[i][j]; k++) {
                 // COST OF: array access and & bit operation
+		__cost += 13; // bit operation
 
             }
             if(loop_invariant_buffer[i][j]) {
@@ -69,8 +75,10 @@ int update_shadow_linear_predicted_values(int num_loop_invariant_loads, int num_
     for(int i = 0; i < num_loop_invariant_loads; i++) {
         for(int j = 0; j < num_contexts; j++) {
             // COST OF: 4 bit operations
+	    __cost += 4;
             for(int k = 0; k < linear_predictors[i][j]; k++) {
                 // COST OF: array access and & bit operation
+		__cost += 13;
                 
             }
             if(linear_predictors[i][j]) {

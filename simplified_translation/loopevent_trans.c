@@ -20,6 +20,7 @@ void __specpriv_begin_invocation() {
     init_heaps(MAX_GLOBAL_SIZE, MAX_HEAP_SIZE, MAX_STACK_SIZE);
 
     // COST OF: mmap sizeof(pcb_t) [6 integer struct]
+    __cost += 200;
 }
 
 void __specpriv_begin_iter(int wid, int iter, int my_stage, int is_my_iter) {
@@ -32,13 +33,16 @@ void __specpriv_begin_iter(int wid, int iter, int my_stage, int is_my_iter) {
                 case NORMAL: {
                     queue_consume(&ucvf_queues[source][wid]);
                     // COST OF: set bit
+		    __cost += 1;
                     // COST OF: (bit shift) * 8
+		    __cost += 1;
                 }
                 case SUPER: {
                     // replacement of p->is_write == CHECK_RO_PAGE
                     if(num_ro_pages > 0) {
                         num_ro_pages--;
                         // COST OF: set bit
+			__cost += 1;
                     }
                     else {
                         queue_consume(&ucvf_queues[source][wid]);
@@ -108,6 +112,7 @@ void forward_packet(int wid, int shadow_size, int my_stage, int is_my_iter) {
             int idx = get_available_ucvf_packet(source, NUM_WORKERS);
             queue_produce( &ucvf_queues[source][idx] );
             // COST OF: allocating shadow_size
+	    __cost += 300;
             // technically should occur when receive ALLOC packet but not tracking true type
         }
     }
@@ -146,6 +151,7 @@ void __specpriv_end_invocation() {
     uninit_buffers(MAX_LOADS, MAX_CONTEXTS);
     uninit_packets(NUM_AUX_WORKERS+NUM_WORKERS);
     // COST OF: munmap sizeof(pcb_t) [6 integer struct]
+    __cost += 500;
 }
 
 void main() {
